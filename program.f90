@@ -1,5 +1,6 @@
 PROGRAM greaseTheory
     IMPLICIT NONE
+    LOGICAL(1), EXTERNAL :: IsInSource
     INTEGER(2), PARAMETER :: io = 12
     INTEGER(4) :: ni, nj
     INTEGER(4) :: i, j, s_max
@@ -22,6 +23,8 @@ PROGRAM greaseTheory
     CALL BoundaryZeroDerivative(ni, nj, p) 
 
     ! CALL BoundaryZeroDerivativeSecondOrder(ni, nj, p) 
+
+    CALL Solver(ni, nj, beta, dx, dy, p)
 
     CALL DataOutput(io, ni, nj, x, y, p)
 
@@ -155,10 +158,32 @@ SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
     END SUBROUTINE
 
 
-SUBROUTINE Solver()
+SUBROUTINE Solver(ni, nj, beta, dx, dy, p)
     ! Solver for Reynolds equation
     IMPLICIT NONE
-    
+    LOGICAL(1), EXTERNAL :: IsInSource, IsInDitchX, IsInDitchY
+    INTEGER(4) :: i, j, s, ni, nj, s_max
+    REAL(8) :: beta, dx, dy
+    REAL(8), DIMENSION(0:ni,0:nj) :: p
+
+    DO s = 1, 10
+        DO i = 0, ni
+            DO j = 0, nj
+                IF (IsInSource(i, j, beta, dx, dy)) THEN 
+                    p(i,j) = 10D0
+                ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx (p(i, j - 1) + p(i, j + 1))) &
+                        / (2D0 * (phi * dy + dx * dx))
+                ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * dx * (p(i, j + 1) + p(i, j - 1)) + dy * dy (p(i - 1, j) + p(i + 1, j))) &
+                        / (2D0 * (phi * dx + dy * dy))
+                ELSE 
+                    p(i,j) = (dy * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx * (p(i, j + 1) + p(i, j - 1))) &
+                        / (2D0 * (dx * dx + dy * dy))
+                END IF
+            END DO
+        END DO
+    END DO
     
     ! WRITE(*,*) 'SOLVING EQUATIONS (PRANDTL)'
 
@@ -317,4 +342,3 @@ REAL(8) FUNCTION SourceFunction(x)
     SourceFunction = DSQRT(1D0 - x)
 
     END FUNCTION
-    
