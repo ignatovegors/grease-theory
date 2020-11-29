@@ -155,68 +155,62 @@ SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
     END SUBROUTINE
 
 
-! SUBROUTINE Solver(ni, nj, s_max, dx, dy, nu, eps, u_0, u, v)
-!     ! Solver for Reynolds equation
-!     IMPLICIT NONE
-!     LOGICAL(1), EXTERNAL :: ConvergenceCheckPrandtl
-!     INTEGER(4) :: i, j, s, ni, nj, s_max
-!     REAL(8) :: dx, dy, nu, eps, u_0
-!     REAL(8), DIMENSION(ni,nj) :: u, v
-!     REAL(8), DIMENSION(nj) :: u_temp, v_temp, a, b, c, d
-!     INTENT(IN) :: ni, nj, s_max, dx, dy, nu, eps, u_0
-!     INTENT(OUT) :: u, v
+SUBROUTINE Solver()
+    ! Solver for Reynolds equation
+    IMPLICIT NONE
+    
+    
+    ! WRITE(*,*) 'SOLVING EQUATIONS (PRANDTL)'
 
-!     WRITE(*,*) 'SOLVING EQUATIONS (PRANDTL)'
-
-!     DO i = 2, ni
+    ! DO i = 2, ni
             
-!         u_temp = u(i - 1, :)
-!         v_temp = v(i - 1, :)
+    !     u_temp = u(i - 1, :)
+    !     v_temp = v(i - 1, :)
 
-!         DO s = 1, s_max
+    !     DO s = 1, s_max
 
-!             a(1) = 0D0
-!             b(1) = 1D0
-!             c(1) = 0D0
-!             d(1) = 0D0
+    !         a(1) = 0D0
+    !         b(1) = 1D0
+    !         c(1) = 0D0
+    !         d(1) = 0D0
 
-!             DO j = 2, nj - 1
-!                 a(j) = - v_temp(j - 1) / (2D0 * dy) - nu / dy**2
-!                 b(j) = u_temp(j) / dx + 2D0 * nu / dy**2
-!                 c(j) = v_temp(j + 1) / (2D0 * dy) - nu / dy**2
-!                 d(j) = u(i - 1, j)**2D0 / dx
-!             END DO
+    !         DO j = 2, nj - 1
+    !             a(j) = - v_temp(j - 1) / (2D0 * dy) - nu / dy**2
+    !             b(j) = u_temp(j) / dx + 2D0 * nu / dy**2
+    !             c(j) = v_temp(j + 1) / (2D0 * dy) - nu / dy**2
+    !             d(j) = u(i - 1, j)**2D0 / dx
+    !         END DO
 
-!             a(nj) = 0D0
-!             b(nj) = 1D0
-!             c(nj) = 0D0
-!             d(nj) = u_0
+    !         a(nj) = 0D0
+    !         b(nj) = 1D0
+    !         c(nj) = 0D0
+    !         d(nj) = u_0
 
-!             CALL ThomasAlgorithm(nj, a, b, c, d, u(i, :))
+    !         CALL ThomasAlgorithm(nj, a, b, c, d, u(i, :))
 
-!             DO j = 2, nj
-!                 v(i,j) = v(i, j - 1) - dy / (2 * dx) * (u(i,j) - u(i - 1, j) + u(i, j - 1) - u(i - 1, j - 1))
-!             END DO    
+    !         DO j = 2, nj
+    !             v(i,j) = v(i, j - 1) - dy / (2 * dx) * (u(i,j) - u(i - 1, j) + u(i, j - 1) - u(i - 1, j - 1))
+    !         END DO    
             
-!             IF ((ConvergenceCheckPrandtl(u(i, :), u_temp, nj, eps)) .AND. (ConvergenceCheckPrandtl(v(i, :), v_temp, nj, eps))) THEN
-!                 WRITE(*,*) 'SOLUTION CONVERGED BY RESIDUALS, NODE №', I, ', s = ', s
-!                 EXIT 
-!             END IF
+    !         IF ((ConvergenceCheckPrandtl(u(i, :), u_temp, nj, eps)) .AND. (ConvergenceCheckPrandtl(v(i, :), v_temp, nj, eps))) THEN
+    !             WRITE(*,*) 'SOLUTION CONVERGED BY RESIDUALS, NODE №', I, ', s = ', s
+    !             EXIT 
+    !         END IF
 
-!             u_temp = u(i, :)
-!             v_temp = v(i, :)
+    !         u_temp = u(i, :)
+    !         v_temp = v(i, :)
 
-!             IF (s == s_max) THEN
-!                 WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY, NODE №', I
-!             END IF
+    !         IF (s == s_max) THEN
+    !             WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY, NODE №', I
+    !         END IF
 
-!         END DO
+    !     END DO
 
-!     END DO
+    ! END DO
 
-!     WRITE(*,*) 'SUCCESS'
+    ! WRITE(*,*) 'SUCCESS'
 
-!     END SUBROUTINE
+    END SUBROUTINE
 
 
 SUBROUTINE DataOutput(io, ni, nj, x, y, p)
@@ -313,3 +307,14 @@ LOGICAL(1) FUNCTION ConvergenceCheck(a, b, eps)
     ConvergenceCheck = (ABS(a - b) < eps)
 
     END FUNCTION
+
+
+REAL(8) FUNCTION SourceFunction(x)
+    ! Source function of lubricant source
+    IMPLICIT NONE
+    REAL(8) :: x
+
+    SourceFunction = DSQRT(1D0 - x)
+
+    END FUNCTION
+    
