@@ -155,8 +155,8 @@ SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
     END SUBROUTINE
 
 
-! SUBROUTINE SolverPrandtl(ni, nj, s_max, dx, dy, nu, eps, u_0, u, v)
-!     ! Solver for Prandtl (Simplified Navier-Stokes) equations system
+! SUBROUTINE Solver(ni, nj, s_max, dx, dy, nu, eps, u_0, u, v)
+!     ! Solver for Reynolds equation
 !     IMPLICIT NONE
 !     LOGICAL(1), EXTERNAL :: ConvergenceCheckPrandtl
 !     INTEGER(4) :: i, j, s, ni, nj, s_max
@@ -254,8 +254,25 @@ SUBROUTINE LubricantSourceLocation(beta, dx, dy, res_i, res_j)
     END SUBROUTINE
 
 
-LOGICAL(1) FUNCTION IsInDitch(i, j, beta, dx, dy)
-    ! Checks if node is in ditch
+LOGICAL(1) FUNCTION IsInDitchX(i, j, beta, dx, dy)
+    ! Checks if node is in ditch that is along x axis
+    IMPLICIT NONE
+    INTEGER(4) :: i, j, lub_src_i, lub_src_j
+    REAL(8) :: beta, dx, dy
+
+    CALL LubricantSourceLocation(beta, dx, dy, lub_src_i, lub_src_j)
+
+    IF ((j == lub_src_j) .AND. (i > lub_src_i)) THEN
+        IsInDitchX = .TRUE.
+    ELSE
+        IsInDitchX = .FALSE.
+    END IF
+
+    END FUNCTION
+
+
+LOGICAL(1) FUNCTION IsInDitchY(i, j, beta, dx, dy)
+    ! Checks if node is in ditch that is along y axis
     IMPLICIT NONE
     INTEGER(4) :: i, j, lub_src_i, lub_src_j
     REAL(8) :: beta, dx, dy
@@ -263,11 +280,9 @@ LOGICAL(1) FUNCTION IsInDitch(i, j, beta, dx, dy)
     CALL LubricantSourceLocation(beta, dx, dy, lub_src_i, lub_src_j)
 
     IF ((i == lub_src_i) .AND. (j > lub_src_j)) THEN
-        IsInDitch = .TRUE.
-    ELSE IF ((j == lub_src_j) .AND. (i > lub_src_i)) THEN
-        IsInDitch = .TRUE.
+        IsInDitchY = .TRUE.
     ELSE
-        IsInDitch = .FALSE.
+        IsInDitchY = .FALSE.
     END IF
 
     END FUNCTION
