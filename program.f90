@@ -21,6 +21,8 @@ PROGRAM greaseTheory
     
     CALL BoundaryZeroDerivative(ni, nj, p) 
 
+    ! CALL BoundaryZeroDerivativeSecondOrder(ni, nj, p) 
+
     CALL DataOutput(io, ni, nj, x, y, p)
 
     DEALLOCATE(x, y, p)
@@ -133,6 +135,22 @@ SUBROUTINE BoundaryZeroDerivative(ni, nj, p)
    
     p(1:ni - 1, nj) = p(1:ni - 1, nj - 1)
     p(ni, 1:nj) = p(ni - 1, 1:nj)
+  
+    END SUBROUTINE
+
+
+SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
+    ! Boundary zero derivative second order conditions 
+    ! in normal direction for pressure on top and right 
+    ! sides of the area 
+    IMPLICIT NONE
+    INTEGER(4) :: ni, nj
+    REAL(8), DIMENSION(0:ni,0:nj) :: p
+    INTENT(IN) ni, nj
+    INTENT(OUT) p
+   
+    p(1:ni - 1, nj) = (4D0 * p(1:ni - 1, nj - 1) - p(1:ni - 1, nj - 2)) / 3D0
+    p(ni, 1:nj) = (4D0 * p(ni - 1, 1:nj) - p(ni - 2, 1:nj)) / 3D0
   
     END SUBROUTINE
 
