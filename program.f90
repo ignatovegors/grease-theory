@@ -24,7 +24,7 @@ PROGRAM greaseTheory
 
     ! CALL BoundaryZeroDerivativeSecondOrder(ni, nj, p) 
 
-    CALL Solver(ni, nj, beta, dx, dy, p)
+    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io)
 
     CALL DataOutput(io, ni, nj, x, y, p)
 
@@ -158,24 +158,31 @@ SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
     END SUBROUTINE
 
 
-SUBROUTINE Solver(ni, nj, beta, dx, dy, p)
+SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io)
     ! Solver for Reynolds equation
     IMPLICIT NONE
     LOGICAL(1), EXTERNAL :: IsInSource, IsInDitchX, IsInDitchY
+    REAL(8), EXTERNAL :: SourceFunction, PressureForce
+    INTEGER(2) :: io
     INTEGER(4) :: i, j, s, ni, nj, s_max
-    REAL(8) :: beta, dx, dy
-    REAL(8), DIMENSION(0:ni,0:nj) :: p
+    REAL(8) :: beta, dx, dy, m, phi, norm_coeff, omega, p_force, p_force_temp
+    REAL(8), DIMENSION(0:ni,0:nj) :: p, p_temp, x, y
 
-    DO s = 1, 10
-        DO i = 0, ni
-            DO j = 0, nj
+    CALL InitialConditions(ni, nj, p_temp, x, y, omega)
+
+    OPEN(io, FILE='RESIDUALS.PLT')
+
+    DO s = 1, s_max
+        DO i = 1, ni - 1
+            DO j = 1, nj - 1
                 IF (IsInSource(i, j, beta, dx, dy)) THEN 
-                    p(i,j) = 10D0
+                    p(i,j) = (dx * dy * m * SourceFunction(p(i,j)) + phi * (dy * p(i + 1, j) + dx * p(i, j + 1))) &
+                        / (phi * (dx + dy)) 
                 ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
-                    p(i,j) = (phi * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx (p(i, j - 1) + p(i, j + 1))) &
+                    p(i,j) = (phi * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx * (p(i, j - 1) + p(i, j + 1))) &
                         / (2D0 * (phi * dy + dx * dx))
                 ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
-                    p(i,j) = (phi * dx * (p(i, j + 1) + p(i, j - 1)) + dy * dy (p(i - 1, j) + p(i + 1, j))) &
+                    p(i,j) = (phi * dx * (p(i, j + 1) + p(i, j - 1)) + dy * dy * (p(i - 1, j) + p(i + 1, j))) &
                         / (2D0 * (phi * dx + dy * dy))
                 ELSE 
                     p(i,j) = (dy * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx * (p(i, j + 1) + p(i, j - 1))) &
@@ -183,57 +190,38 @@ SUBROUTINE Solver(ni, nj, beta, dx, dy, p)
                 END IF
             END DO
         END DO
+
+        CALL BoundaryZeroDerivative(ni, nj, p)
+
+        p_force = PressureForce(p, ni, nj, dx, dy)
+        p_force_temp = PressureForce(p_temp, ni, nj, dx, dy)
+
+        IF (s == 1) THEN 
+            norm_coeff = MAXVAL(ABS(p - p_temp))
+            WRITE(*,*) 1, 'ITERATION MADE, RESIDUAL = ', 1D0, 'PRESSURE FORCE = ', p_force
+        END IF
+
+        IF (MOD(s,100) == 0) THEN
+            WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
+            WRITE(*,*) ABS(1D0 - p_force / p_force_temp)
+        END IF
+
+        WRITE(io,*) s, MAXVAL(ABS(p - p_temp)) / norm_coeff, p_force
+
+        IF (s == s_max) THEN
+            WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY'
+        END IF
+
+        ! IF (ABS(1D0 - p_force_temp / p_force) < 1D-3) THEN
+            ! WRITE(*,*) ABS(1D0 - p_force_temp / p_force)
+            
+        ! END IF        
+
+        p_temp = p
+
     END DO
-    
-    ! WRITE(*,*) 'SOLVING EQUATIONS (PRANDTL)'
 
-    ! DO i = 2, ni
-            
-    !     u_temp = u(i - 1, :)
-    !     v_temp = v(i - 1, :)
-
-    !     DO s = 1, s_max
-
-    !         a(1) = 0D0
-    !         b(1) = 1D0
-    !         c(1) = 0D0
-    !         d(1) = 0D0
-
-    !         DO j = 2, nj - 1
-    !             a(j) = - v_temp(j - 1) / (2D0 * dy) - nu / dy**2
-    !             b(j) = u_temp(j) / dx + 2D0 * nu / dy**2
-    !             c(j) = v_temp(j + 1) / (2D0 * dy) - nu / dy**2
-    !             d(j) = u(i - 1, j)**2D0 / dx
-    !         END DO
-
-    !         a(nj) = 0D0
-    !         b(nj) = 1D0
-    !         c(nj) = 0D0
-    !         d(nj) = u_0
-
-    !         CALL ThomasAlgorithm(nj, a, b, c, d, u(i, :))
-
-    !         DO j = 2, nj
-    !             v(i,j) = v(i, j - 1) - dy / (2 * dx) * (u(i,j) - u(i - 1, j) + u(i, j - 1) - u(i - 1, j - 1))
-    !         END DO    
-            
-    !         IF ((ConvergenceCheckPrandtl(u(i, :), u_temp, nj, eps)) .AND. (ConvergenceCheckPrandtl(v(i, :), v_temp, nj, eps))) THEN
-    !             WRITE(*,*) 'SOLUTION CONVERGED BY RESIDUALS, NODE №', I, ', s = ', s
-    !             EXIT 
-    !         END IF
-
-    !         u_temp = u(i, :)
-    !         v_temp = v(i, :)
-
-    !         IF (s == s_max) THEN
-    !             WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY, NODE №', I
-    !         END IF
-
-    !     END DO
-
-    ! END DO
-
-    ! WRITE(*,*) 'SUCCESS'
+    CLOSE(io)
 
     END SUBROUTINE
 
@@ -340,5 +328,23 @@ REAL(8) FUNCTION SourceFunction(x)
     REAL(8) :: x
 
     SourceFunction = DSQRT(1D0 - x)
+
+    END FUNCTION
+
+REAL(8) FUNCTION PressureForce(a, ni, nj, dx, dy)
+    IMPLICIT NONE
+    REAL(8) :: dx, dy, sum
+    REAL(8), DIMENSION(0:ni, 0:nj) :: a
+    INTEGER(4) :: ni, nj, i, j
+
+    sum = 0
+
+    DO i = 0, ni - 1
+        DO j = 0, nj - 1
+            sum = sum + (a(i,j) + a(i + 1, j) + a(i, j + 1) + a(i + 1, j + 1)) / 4D0
+        END DO
+    END DO
+
+    PressureForce = sum * dx * dy
 
     END FUNCTION
