@@ -4,7 +4,7 @@ PROGRAM greaseTheory
     INTEGER(2), PARAMETER :: io = 12
     INTEGER(4) :: ni, nj
     INTEGER(4) :: i, j, s_max
-    REAL(8) :: omega, beta, phi, m, dx, dy, eps
+    REAL(8) :: omega, beta, phi, m, dx, dy, eps, k
     REAL(8), ALLOCATABLE :: x(:,:), y(:,:), p(:,:)
 
 
@@ -24,7 +24,7 @@ PROGRAM greaseTheory
 
     ! CALL BoundaryZeroDerivativeSecondOrder(ni, nj, p) 
 
-    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io)
+    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, k)
 
     CALL DataOutput(io, ni, nj, x, y, p)
 
@@ -99,11 +99,13 @@ SUBROUTINE InitialConditions(ni, nj, p, x, y, omega)
     
     DO i = 0, ni
         DO j = 0, nj
-            IF (x(i,j) < y(i,j) / omega) THEN
-                p(i,j) = x(i,j)
-            ELSE
-                p(i,j) = y(i,j) / omega
-            END IF
+            ! IF (x(i,j) < y(i,j) / omega) THEN ! More accurate initial conditions
+            !     p(i,j) = x(i,j)
+            ! ELSE
+            !     p(i,j) = y(i,j) / omega
+            ! END IF
+
+            p(i,j) = 0D0
         END DO
     END DO
 
@@ -158,14 +160,14 @@ SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
     END SUBROUTINE
 
 
-SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io)
+SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, k)
     ! Solver for Reynolds equation
     IMPLICIT NONE
     LOGICAL(1), EXTERNAL :: IsInSource, IsInDitchX, IsInDitchY
     REAL(8), EXTERNAL :: SourceFunction, PressureForce
     INTEGER(2) :: io
     INTEGER(4) :: i, j, s, ni, nj, s_max
-    REAL(8) :: beta, dx, dy, m, phi, norm_coeff, omega, p_force, p_force_temp
+    REAL(8) :: beta, dx, dy, m, phi, norm_coeff, omega, p_force, p_force_temp, p_force_a, p_force_b, k
     REAL(8), DIMENSION(0:ni,0:nj) :: p, p_temp, x, y
 
     CALL InitialConditions(ni, nj, p_temp, x, y, omega)
@@ -203,7 +205,6 @@ SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io)
 
         IF (MOD(s,100) == 0) THEN
             WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
-            WRITE(*,*) ABS(1D0 - p_force / p_force_temp)
         END IF
 
         WRITE(io,*) s, MAXVAL(ABS(p - p_temp)) / norm_coeff, p_force
@@ -212,16 +213,57 @@ SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io)
             WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY'
         END IF
 
-        ! IF (ABS(1D0 - p_force_temp / p_force) < 1D-3) THEN
-            ! WRITE(*,*) ABS(1D0 - p_force_temp / p_force)
-            
-        ! END IF        
+        IF (ABS(1D0 - p_force_temp / p_force) < 1D-6) THEN
+            EXIT            
+        END IF        
 
         p_temp = p
 
     END DO
 
     CLOSE(io)
+
+    p_force_a = p_force
+
+    CALL InitialConditions(ni, nj, p_temp, x, y, omega)
+
+    DO s = 1, s_max
+        DO i = 1, ni - 1
+            DO j = 1, nj - 1
+                IF (IsInSource(i, j, beta, dx, dy)) THEN 
+                    p(i,j) = (dx * dy * m * SourceFunction(p(i,j)) + phi * (dy * p(i + 1, j) + dx * p(i, j + 1))) &
+                        / (phi * (dx + dy)) 
+                ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx * 1.001D0**3 * (p(i, j - 1) + p(i, j + 1))) &
+                        / (2D0 * (phi * dy + 1.001D0**3 * dx * dx))
+                ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * dx * (p(i, j + 1) + p(i, j - 1)) + dy * dy * 1.001D0**3 * (p(i - 1, j) + p(i + 1, j))) &
+                        / (2D0 * (phi * dx + 1.001D0**3 * dy * dy))
+                ELSE 
+                    p(i,j) = (dy * dy * (p(i + 1, j) + p(i - 1, j)) + dx * dx * (p(i, j + 1) + p(i, j - 1))) &
+                        / (2D0 * (dx * dx + dy * dy))
+                END IF
+            END DO
+        END DO
+
+        CALL BoundaryZeroDerivative(ni, nj, p)
+
+        p_force = PressureForce(p, ni, nj, dx, dy)
+        p_force_temp = PressureForce(p_temp, ni, nj, dx, dy)
+
+        IF (ABS(1D0 - p_force_temp / p_force) < 1D-6) THEN
+            EXIT            
+        END IF        
+
+        p_temp = p
+
+    END DO
+
+    p_force_b = p_force
+
+    k = (p_force_b - p_force_a) / 1D-3
+
+    WRITE(*,*) 'K = ', k
 
     END SUBROUTINE
 
