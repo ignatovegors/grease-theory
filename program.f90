@@ -165,6 +165,7 @@ SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, 
 
         IF (MAXVAL(ABS(p - p_temp)) / norm_coeff < eps) THEN
             WRITE(*,*) 'SOLUTION CONVERGED BY DIFFERENCE BOUNDARY'
+            WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
             EXIT
         END IF        
 
@@ -246,6 +247,7 @@ SUBROUTINE SolverSecondOrder(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y
 
         IF (MAXVAL(ABS(p - p_temp)) / norm_coeff < eps) THEN
             WRITE(*,*) 'SOLUTION CONVERGED BY DIFFERENCE BOUNDARY'
+            WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
             EXIT
         END IF        
 
