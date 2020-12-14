@@ -1,13 +1,13 @@
 PROGRAM greaseTheory
     IMPLICIT NONE
     INTEGER(2), PARAMETER :: io = 12
-    INTEGER(4) :: ni, nj
+    INTEGER(4) :: ni, nj, order
     INTEGER(4) :: s_max
-    REAL(8) :: omega, beta, phi, m, dx, dy, eps, k
+    REAL(8) :: omega, beta, phi, m, dx, dy, eps, k, p_force
     REAL(8), ALLOCATABLE :: x(:,:), y(:,:), p(:,:)
 
 
-    CALL DataInput(io, omega, beta, phi, m, ni, nj, s_max, eps)
+    CALL DataInput(io, omega, beta, phi, m, ni, nj, s_max, eps, order)
 
     ALLOCATE(x(0:ni, 0:nj))
     ALLOCATE(y(0:ni, 0:nj))
@@ -17,11 +17,11 @@ PROGRAM greaseTheory
 
     CALL InitialConditions(ni, nj, p, x, y, omega)
 
-    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, k)
+    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, p_force, 1D0, order, .TRUE.)
 
-    CALL InitialConditions(ni, nj, p, x, y, omega)
-
-    CALL SolverSecondOrder(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, k)
+    CALL DataOutput(io, ni, nj, x, y, p, order)
+    
+    CALL SolverHardness(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, k, order)
 
     DEALLOCATE(x, y, p)
 
@@ -29,11 +29,11 @@ PROGRAM greaseTheory
 END PROGRAM
 
 
-SUBROUTINE DataInput(io, omega, beta, phi, m, ni, nj, s_max, eps)
+SUBROUTINE DataInput(io, omega, beta, phi, m, ni, nj, s_max, eps, order)
     ! Takes input data from file input.txt
     IMPLICIT NONE
     INTEGER(2) :: io
-    INTEGER(4) :: ni, nj, s_max
+    INTEGER(4) :: ni, nj, s_max, order
     REAL(8) :: omega, beta, phi, m, eps
     INTENT(IN) io
     INTENT(OUT) omega, beta, phi, m, ni, nj, s_max, eps
@@ -48,6 +48,7 @@ SUBROUTINE DataInput(io, omega, beta, phi, m, ni, nj, s_max, eps)
     READ(io,*) nj
     READ(io,*) s_max
     READ(io,*) eps
+    READ(io,*) order    
 
     CLOSE(io)
     WRITE(*,*) 'SUCCESS'
@@ -95,77 +96,75 @@ SUBROUTINE InitialConditions(ni, nj, p, x, y, omega)
     END SUBROUTINE
 
 
-SUBROUTINE BoundaryZeroDerivative(ni, nj, p)
+SUBROUTINE BoundaryZeroDerivative(ni, nj, p, order)
     ! Boundary zero derivative conditions in normal direction for 
     ! pressure on top and right sides of the area 
     IMPLICIT NONE
-    INTEGER(4) :: ni, nj
+    INTEGER(4) :: ni, nj, order
     REAL(8), DIMENSION(0:ni,0:nj) :: p
     INTENT(IN) ni, nj
     INTENT(OUT) p
-   
-    p(1:ni, nj) = p(1:ni, nj - 1)
-    p(ni, 1:nj) = p(ni - 1, 1:nj)
-  
+    
+    IF (order == 1) THEN
+        p(1:ni, nj) = p(1:ni, nj - 1)
+        p(ni, 1:nj) = p(ni - 1, 1:nj)
+    ELSE IF (order == 2) THEN
+        p(1:ni, nj) = (4D0 * p(1:ni, nj - 1) - p(1:ni, nj - 2)) / 3D0
+        p(ni, 1:nj) = (4D0 * p(ni - 1, 1:nj) - p(ni - 2, 1:nj)) / 3D0
+    END IF
+
     END SUBROUTINE
 
 
-SUBROUTINE BoundaryZeroDerivativeSecondOrder(ni, nj, p)
-    ! Boundary zero derivative second order conditions 
-    ! in normal direction for pressure on top and right 
-    ! sides of the area 
-    IMPLICIT NONE
-    INTEGER(4) :: ni, nj
-    REAL(8), DIMENSION(0:ni,0:nj) :: p
-    INTENT(IN) ni, nj
-    INTENT(OUT) p
-   
-    p(1:ni, nj) = (4D0 * p(1:ni, nj - 1) - p(1:ni, nj - 2)) / 3D0
-    p(ni, 1:nj) = (4D0 * p(ni - 1, 1:nj) - p(ni - 2, 1:nj)) / 3D0
-  
-    END SUBROUTINE
-
-
-SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, k)
+SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, p_force, h, order, stats)
     ! Solver for Reynolds equation
     IMPLICIT NONE
+    LOGICAL(4) :: stats
     REAL(8), EXTERNAL :: PressureForce
     INTEGER(2) :: io
-    INTEGER(4) :: s, ni, nj, s_max
-    REAL(8) :: beta, dx, dy, m, phi, norm_coeff, omega, p_force, p_force_temp, p_force_a, p_force_b, k, eps
+    INTEGER(4) :: s, ni, nj, s_max, order
+    REAL(8) :: beta, dx, dy, m, phi, norm_coeff, omega, p_force, p_force_temp, eps, h
     REAL(8), DIMENSION(0:ni,0:nj) :: p, p_temp, x, y
+
+    IF (order == 1) THEN
+        OPEN(io,FILE='RESIDUALS_FO.PLT')
+    ELSE IF (order == 2) THEN
+        OPEN(io,FILE='RESIDUALS_SO.PLT')
+    END IF
 
     CALL InitialConditions(ni, nj, p_temp, x, y, omega)
 
-    OPEN(io, FILE='RESIDUALS_FO.PLT')
+    DO s = 1, s_max        
 
-    DO s = 1, s_max
+        CALL SolverIteration(ni, nj, beta, dx, dy, p, m, phi, h, order)
+
+        CALL BoundaryZeroDerivative(ni, nj, p, order)
         
-        CALL SolverIteration(ni, nj, beta, dx, dy, p, m, phi, 1D0)
-
-        CALL BoundaryZeroDerivative(ni, nj, p)
-
         p_force = PressureForce(p, ni, nj, dx, dy)
         p_force_temp = PressureForce(p_temp, ni, nj, dx, dy)
 
         IF (s == 1) THEN 
             norm_coeff = MAXVAL(ABS(p - p_temp))
-            WRITE(*,*) 1, 'ITERATION MADE, RESIDUAL = ', 1D0, 'PRESSURE FORCE = ', p_force
+            IF (stats) THEN
+                WRITE(*,*) 1, 'ITERATION MADE, RESIDUAL = ', 1D0, 'PRESSURE FORCE = ', p_force
+            END IF
         END IF
 
-        IF (MOD(s,1000) == 0) THEN
+        IF ((MOD(s,1000) == 0) .AND. stats) THEN
             WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
         END IF
 
         WRITE(io,*) s, MAXVAL(ABS(p - p_temp)) / norm_coeff, p_force
 
-        IF (s == s_max) THEN
+        IF ((s == s_max) .AND. stats) THEN
             WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY'
         END IF
 
         IF (MAXVAL(ABS(p - p_temp)) / norm_coeff < eps) THEN
-            WRITE(*,*) 'SOLUTION CONVERGED BY DIFFERENCE BOUNDARY'
-            WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
+            IF (stats) THEN
+                WRITE(*,*) 'SOLUTION CONVERGED BY DIFFERENCE BOUNDARY'
+                WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
+            END IF
             EXIT
         END IF        
 
@@ -175,114 +174,21 @@ SUBROUTINE Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, 
 
     CLOSE(io)
 
-    CALL DataOutput(io, ni, nj, x, y, p, 'RES_FO.PLT')
-
-    p_force_a = p_force
-
-    CALL InitialConditions(ni, nj, p_temp, x, y, omega)
-
-    DO s = 1, s_max
-
-        CALL SolverIteration(ni, nj, beta, dx, dy, p, m, phi, 1.001D0)
-
-        CALL BoundaryZeroDerivative(ni, nj, p)
-
-        p_force = PressureForce(p, ni, nj, dx, dy)
-        p_force_temp = PressureForce(p_temp, ni, nj, dx, dy)
-
-        IF (MAXVAL(ABS(p - p_temp)) / norm_coeff < eps) THEN
-            EXIT
-        END IF        
-
-        p_temp = p
-
-    END DO
-
-    p_force_b = p_force
-
-    k = (p_force_b - p_force_a) / 1D-3
-
-    WRITE(*,*) 'K = ', k
-    WRITE(*,*)
-
     END SUBROUTINE
 
 
-SUBROUTINE SolverSecondOrder(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, k)
-    ! Second-order solver for Reynolds equation
+SUBROUTINE SolverHardness(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, k, order)
+    ! Solver for Reynolds equation
     IMPLICIT NONE
-    REAL(8), EXTERNAL :: PressureForce
     INTEGER(2) :: io
-    INTEGER(4) :: s, ni, nj, s_max
-    REAL(8) :: beta, dx, dy, m, phi, norm_coeff, omega, p_force, p_force_temp, p_force_a, p_force_b, k, eps
-    REAL(8), DIMENSION(0:ni,0:nj) :: p, p_temp, x, y
+    INTEGER(4) :: ni, nj, s_max, order
+    REAL(8) :: beta, dx, dy, m, phi, omega, p_force_a, p_force_b, k, eps
+    REAL(8), DIMENSION(0:ni,0:nj) :: p, x, y
 
-    CALL InitialConditions(ni, nj, p_temp, x, y, omega)
+    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, p_force_a, 1D0, order, .FALSE.)
+    CALL Solver(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y, io, eps, p_force_b, 1.001D0, order, .FALSE.)
 
-    OPEN(io, FILE='RESIDUALS_SO.PLT')
-
-    DO s = 1, s_max
-
-        CALL SolverSecondOrderIteration(ni, nj, beta, dx, dy, p, m, phi, 1D0)
-
-        CALL BoundaryZeroDerivativeSecondOrder(ni, nj, p)
-
-        p_force = PressureForce(p, ni, nj, dx, dy)
-        p_force_temp = PressureForce(p_temp, ni, nj, dx, dy)
-
-        IF (s == 1) THEN 
-            norm_coeff = MAXVAL(ABS(p - p_temp))
-            WRITE(*,*) 1, 'ITERATION MADE, RESIDUAL = ', 1D0, 'PRESSURE FORCE = ', p_force
-        END IF
-
-        IF (MOD(s,1000) == 0) THEN
-            WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
-        END IF
-
-        WRITE(io,*) s, MAXVAL(ABS(p - p_temp)) / norm_coeff, p_force
-
-        IF (s == s_max) THEN
-            WRITE(*,*) 'SOLUTION CONVERGED BY ITERATIONS BOUNDARY'
-        END IF
-
-        IF (MAXVAL(ABS(p - p_temp)) / norm_coeff < eps) THEN
-            WRITE(*,*) 'SOLUTION CONVERGED BY DIFFERENCE BOUNDARY'
-            WRITE(*,*) s, 'ITERATIONS MADE, RESIDUAL = ', MAXVAL(ABS(p - p_temp)) / norm_coeff, 'PRESSURE FORCE = ', p_force
-            EXIT
-        END IF        
-
-        p_temp = p
-
-    END DO
-
-    CLOSE(io)
-
-    CALL DataOutput(io, ni, nj, x, y, p, 'RES_SO.PLT')
-
-    p_force_a = p_force
-
-    CALL InitialConditions(ni, nj, p_temp, x, y, omega)
-
-    DO s = 1, s_max
-        
-        CALL SolverSecondOrderIteration(ni, nj, beta, dx, dy, p, m, phi, 1.001D0)
-
-        CALL BoundaryZeroDerivativeSecondOrder(ni, nj, p)
-
-        p_force = PressureForce(p, ni, nj, dx, dy)
-        p_force_temp = PressureForce(p_temp, ni, nj, dx, dy)
-
-        IF (MAXVAL(ABS(p - p_temp)) / norm_coeff < eps) THEN
-            EXIT
-        END IF        
-
-        p_temp = p
-
-    END DO
-
-    p_force_b = p_force
-
-    k = (p_force_b - p_force_a) / 1D-3
+    k = (p_force_a - p_force_b) / 1D-3
 
     WRITE(*,*) 'K = ', k
     WRITE(*,*)
@@ -290,80 +196,77 @@ SUBROUTINE SolverSecondOrder(ni, nj, beta, dx, dy, p, m, phi, omega, s_max, x, y
     END SUBROUTINE
 
 
-SUBROUTINE SolverIteration(ni, nj, beta, dx, dy, p, m, phi, h)
-    ! 1 iteration of second-order solver for Reynolds equation
+SUBROUTINE SolverIteration(ni, nj, beta, dx, dy, p, m, phi, h, order)
+    ! 1 iteration of solver for Reynolds equation
     IMPLICIT NONE
     LOGICAL(1), EXTERNAL :: IsInSource, IsInDitchX, IsInDitchY
     REAL(8), EXTERNAL :: SourceFunction
-    INTEGER(4) :: i, j, ni, nj
+    INTEGER(4) :: i, j, ni, nj, order
     REAL(8) :: beta, dx, dy, m, phi, h
     REAL(8), DIMENSION(0:ni,0:nj) :: p
     INTENT(IN) ni, nj, beta, dx, dy, m, phi, h
     INTENT(INOUT) p
 
-    DO i = 1, ni - 1
-        DO j = 1, nj - 1
-            IF (IsInSource(i, j, beta, dx, dy)) THEN 
-                p(i,j) = (m * SourceFunction(p(i,j)) + phi * (p(i + 1, j) / dx + p(i, j + 1) / dy)) &
-                    / (phi * (1D0 / dx + 1D0 / dy)) 
-            ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
-                p(i,j) = (phi * (p(i + 1, j) + p(i - 1, j)) / (dx * dx) + h**3 * (p(i, j - 1) + p(i, j + 1)) / dy) &
-                    / (2D0 * phi / (dx * dx) + h**3 * 2D0 / dy)
-            ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
-                p(i,j) = (phi * (p(i, j + 1) + p(i, j - 1)) / (dy * dy) + h**3 * (p(i - 1, j) + p(i + 1, j)) / dx) &
-                    / (2D0 * phi / (dy * dy) + h**3 * 2D0 / dx)
-            ELSE 
-                p(i,j) = ((p(i + 1, j) + p(i - 1, j)) / (dx * dx) + (p(i, j + 1) + p(i, j - 1)) / (dy * dy)) &
-                    / (2D0 * (1D0 / (dx * dx) + 1D0 / (dy * dy)))
-            END IF
+    IF (order == 1) THEN
+
+        DO i = 1, ni - 1
+            DO j = 1, nj - 1
+                IF (IsInSource(i, j, beta, dx, dy)) THEN 
+                    p(i,j) = (m * SourceFunction(p(i,j)) + phi * (p(i + 1, j) / dx + p(i, j + 1) / dy)) &
+                        / (phi * (1D0 / dx + 1D0 / dy)) 
+                ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * (p(i + 1, j) + p(i - 1, j)) / (dx * dx) + h**3 * (p(i, j - 1) + p(i, j + 1)) / dy) &
+                        / (2D0 * phi / (dx * dx) + h**3 * 2D0 / dy)
+                ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * (p(i, j + 1) + p(i, j - 1)) / (dy * dy) + h**3 * (p(i - 1, j) + p(i + 1, j)) / dx) &
+                        / (2D0 * phi / (dy * dy) + h**3 * 2D0 / dx)
+                ELSE 
+                    p(i,j) = ((p(i + 1, j) + p(i - 1, j)) / (dx * dx) + (p(i, j + 1) + p(i, j - 1)) / (dy * dy)) &
+                        / (2D0 * (1D0 / (dx * dx) + 1D0 / (dy * dy)))
+                END IF
+            END DO
         END DO
-    END DO
+
+    ELSE IF (order == 2) THEN
+
+        DO i = 1, ni - 1
+            DO j = 1, nj - 1
+                IF (IsInSource(i, j, beta, dx, dy)) THEN 
+                    p(i,j) = (m * SourceFunction(p(i,j)) + phi * (4D0 * p(i + 1, j) - p(i + 2, j)) / (2D0 * dx) &
+                        + phi * (4D0 * p(i, j + 1) - p(i, j + 2)) / (2D0 * dy)) / (phi * 1.5D0 * (1D0 / dx + 1D0 / dy)) 
+                ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * (p(i + 1, j) + p(i - 1, j)) / (dx * dx) + h**3 * (4D0 * p(i, j - 1) - &
+                        p(i, j - 2) + 4D0 * p(i, j + 1) - p(i, j + 2)) / (2D0 * dy)) / (2D0 * phi / (dx * dx) + h**3 * 3D0 / dy)
+                ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
+                    p(i,j) = (phi * (p(i, j + 1) + p(i, j - 1)) / (dy * dy) + h**3 * (4D0 * p(i - 1, j) - &
+                        p(i - 2, j) + 4D0 * p(i + 1, j) - p(i + 2, j)) / (2D0 * dx)) / (2D0 * phi / (dy * dy) + h**3 * 3D0 / dx)
+                ELSE 
+                    p(i,j) = ((p(i + 1, j) + p(i - 1, j)) / (dx * dx) + (p(i, j + 1) + p(i, j - 1)) / (dy * dy)) &
+                        / (2D0 * (1D0 / (dx * dx) + 1D0 / (dy * dy)))
+                END IF
+            END DO
+        END DO
+
+    END IF
 
     END SUBROUTINE
 
 
-SUBROUTINE SolverSecondOrderIteration(ni, nj, beta, dx, dy, p, m, phi, h)
-    ! 1 iteration of second-order solver for Reynolds equation
-    IMPLICIT NONE
-    LOGICAL(1), EXTERNAL :: IsInSource, IsInDitchX, IsInDitchY
-    REAL(8), EXTERNAL :: SourceFunction
-    INTEGER(4) :: i, j, ni, nj
-    REAL(8) :: beta, dx, dy, m, phi, h
-    REAL(8), DIMENSION(0:ni,0:nj) :: p
-    INTENT(IN) ni, nj, beta, dx, dy, m, phi, h
-    INTENT(INOUT) p
-
-    DO i = 1, ni - 1
-        DO j = 1, nj - 1
-            IF (IsInSource(i, j, beta, dx, dy)) THEN 
-                p(i,j) = (m * SourceFunction(p(i,j)) + phi * (4D0 * p(i + 1, j) - p(i + 2, j)) / (2D0 * dx) &
-                    + phi * (4D0 * p(i, j + 1) - p(i, j + 2)) / (2D0 * dy)) / (phi * 1.5D0 * (1D0 / dx + 1D0 / dy)) 
-            ELSE IF (IsInDitchX(i, j, beta, dx, dy)) THEN
-                p(i,j) = (phi * (p(i + 1, j) + p(i - 1, j)) / (dx * dx) + h**3 * (4D0 * p(i, j - 1) - &
-                    p(i, j - 2) + 4D0 * p(i, j + 1) - p(i, j + 2)) / (2D0 * dy)) / (2D0 * phi / (dx * dx) + h**3 * 3D0 / dy)
-            ELSE IF (IsInDitchY(i, j, beta, dx, dy)) THEN
-                p(i,j) = (phi * (p(i, j + 1) + p(i, j - 1)) / (dy * dy) + h**3 * (4D0 * p(i - 1, j) - &
-                    p(i - 2, j) + 4D0 * p(i + 1, j) - p(i + 2, j)) / (2D0 * dx)) / (2D0 * phi / (dy * dy) + h**3 * 3D0 / dx)
-            ELSE 
-                p(i,j) = ((p(i + 1, j) + p(i - 1, j)) / (dx * dx) + (p(i, j + 1) + p(i, j - 1)) / (dy * dy)) &
-                    / (2D0 * (1D0 / (dx * dx) + 1D0 / (dy * dy)))
-            END IF
-        END DO
-    END DO 
-
-    END SUBROUTINE
-
-
-SUBROUTINE DataOutput(io, ni, nj, x, y, p, filename)
+SUBROUTINE DataOutput(io, ni, nj, x, y, p, order)
     ! Nodes-based results output
     IMPLICIT NONE
     INTEGER(2) :: io
-    INTEGER(4) :: ni, nj
+    INTEGER(4) :: ni, nj, order
     REAL(8), DIMENSION(0:ni,0:nj) :: x, y, p
     CHARACTER(LEN=10) :: filename
-    INTENT(IN) io, ni, nj, x, y, p, filename
+    INTENT(IN) io, ni, nj, x, y, p
     
-    WRITE(*,*) 'RESULTS OUTPUT' 
+    IF (order == 1) THEN
+        filename = 'RES_FO.PLT'
+    ELSE IF (order == 2) THEN
+        filename = 'RES_SO.PLT'
+    END IF
+
     OPEN(io,FILE=filename)
     WRITE(io,*) 'VARIABLES = "X", "Y", "P"' 
     WRITE(io,*) 'ZONE I=', ni + 1, ', J=', nj + 1, ', DATAPACKING=BLOCK'
@@ -373,7 +276,6 @@ SUBROUTINE DataOutput(io, ni, nj, x, y, p, filename)
     WRITE(io,*)
     WRITE(io,'(100E25.16)') p(0:ni, 0:nj)
     CLOSE(io)
-    WRITE(*,*) 'SUCCESS'
 
     END SUBROUTINE 
 
